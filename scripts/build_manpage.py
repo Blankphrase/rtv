@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
 Internal tool used to automatically generate an up-to-date version of the rtv
 man page. Currently this script should be manually ran after each version bump.
@@ -6,6 +8,7 @@ In the future, it would be nice to have this functionality built into setup.py.
 Usage:
     $ python scripts/build_manpage.py
 """
+
 import os
 import sys
 from datetime import datetime
@@ -23,6 +26,7 @@ def main():
     parser = config.build_parser()
     help_text = parser.format_help()
     help_sections = help_text.split('\n\n')
+    del help_sections[1]
 
     data = {}
     print('Fetching version')
@@ -43,11 +47,15 @@ def main():
     #         \fB-h\fR, \fB--help\fR
     #         show this help message and exit
     options = ''
-    lines = help_sections[2].split('\n')[1:]
+    lines = help_sections[2].split('\n')[1:]  # positional arguments
+    lines.extend(help_sections[3].split('\n')[1:])  # optional arguments
     lines = [line.strip() for line in lines]
     arguments = []
     for line in lines:
         if line.startswith('-'):
+            arguments.append(line)
+        elif line.startswith('URL'):
+            # Special case for URL which is a positional argument
             arguments.append(line)
         else:
             arguments[-1] = arguments[-1] + ' ' + line
@@ -70,6 +78,7 @@ def main():
     print('Writing to %s/rtv.1' % ROOT)
     with open(os.path.join(ROOT, 'rtv.1'), 'w') as fp:
         fp.write(out)
+
 
 if __name__ == '__main__':
     main()

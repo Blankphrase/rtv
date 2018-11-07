@@ -15,28 +15,34 @@ from .objects import KeyMap
 
 PACKAGE = os.path.dirname(__file__)
 HOME = os.path.expanduser('~')
-TEMPLATE = os.path.join(PACKAGE, 'templates')
-DEFAULT_CONFIG = os.path.join(PACKAGE, 'rtv.cfg')
-XDG_HOME = os.getenv('XDG_CONFIG_HOME', os.path.join(HOME, '.config'))
-CONFIG = os.path.join(XDG_HOME, 'rtv', 'rtv.cfg')
-TOKEN = os.path.join(XDG_HOME, 'rtv', 'refresh-token')
-HISTORY = os.path.join(XDG_HOME, 'rtv', 'history.log')
+TEMPLATES = os.path.join(PACKAGE, 'templates')
+DEFAULT_CONFIG = os.path.join(TEMPLATES, 'rtv.cfg')
+DEFAULT_MAILCAP = os.path.join(TEMPLATES, 'mailcap')
+DEFAULT_THEMES = os.path.join(PACKAGE, 'themes')
+XDG_CONFIG_HOME = os.getenv('XDG_CONFIG_HOME', os.path.join(HOME, '.config'))
+XDG_DATA_HOME = os.getenv('XDG_DATA_HOME', os.path.join(HOME, '.local', 'share'))
+CONFIG = os.path.join(XDG_CONFIG_HOME, 'rtv', 'rtv.cfg')
+MAILCAP = os.path.join(HOME, '.mailcap')
+TOKEN = os.path.join(XDG_DATA_HOME, 'rtv', 'refresh-token')
+HISTORY = os.path.join(XDG_DATA_HOME, 'rtv', 'history.log')
+THEMES = os.path.join(XDG_CONFIG_HOME, 'rtv', 'themes')
 
 
 def build_parser():
-
     parser = argparse.ArgumentParser(
         prog='rtv', description=docs.SUMMARY,
         epilog=docs.CONTROLS,
+        usage=docs.USAGE,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        '-V', '--version', action='version', version='rtv '+__version__)
+        'link', metavar='URL', nargs='?',
+        help='[optional] Full URL of a submission to open')
     parser.add_argument(
         '-s', dest='subreddit',
-        help='Name of the subreddit that will be opened on start')
+        help='Name of the subreddit that will be loaded on start')
     parser.add_argument(
-        '-l', dest='link',
-        help='Full URL of a submission that will be opened on start')
+        '-l', dest='link_deprecated',
+        help=argparse.SUPPRESS)  # Deprecated, use the positional arg instead
     parser.add_argument(
         '--log', metavar='FILE', action='store',
         help='Log HTTP requests to the given file')
@@ -50,39 +56,72 @@ def build_parser():
         '--monochrome', action='store_const', const=True,
         help='Disable color')
     parser.add_argument(
-        '--non-persistent', dest='persistent', action='store_const',
-        const=False,
+        '--theme', metavar='FILE', action='store',
+        help='Color theme to use, see --list-themes for valid options')
+    parser.add_argument(
+        '--list-themes', metavar='FILE', action='store_const', const=True,
+        help='List all of the available color themes')
+    parser.add_argument(
+        '--non-persistent', dest='persistent', action='store_const', const=False,
         help='Forget the authenticated user when the program exits')
+    parser.add_argument(
+        '--no-autologin', dest='autologin', action='store_const', const=False,
+        help='Do not authenticate automatically on startup')
     parser.add_argument(
         '--clear-auth', dest='clear_auth', action='store_const', const=True,
         help='Remove any saved user data before launching')
     parser.add_argument(
         '--copy-config', dest='copy_config', action='store_const', const=True,
         help='Copy the default configuration to {HOME}/.config/rtv/rtv.cfg')
+    parser.add_argument(
+        '--copy-mailcap', dest='copy_mailcap', action='store_const', const=True,
+        help='Copy an example mailcap configuration to {HOME}/.mailcap')
+    parser.add_argument(
+        '--enable-media', dest='enable_media', action='store_const', const=True,
+        help='Open external links using programs defined in the mailcap config')
+    parser.add_argument(
+        '-V', '--version', action='version', version='rtv ' + __version__)
+    parser.add_argument(
+        '--no-flash', dest='flash', action='store_const', const=False,
+        help='Disable screen flashing')
     return parser
+
+
+def copy_default_mailcap(filename=MAILCAP):
+    """
+    Copy the example mailcap configuration to the specified file.
+    """
+    return _copy_settings_file(DEFAULT_MAILCAP, filename, 'mailcap')
 
 
 def copy_default_config(filename=CONFIG):
     """
-    Copy the default configuration file to the user's {HOME}/.config/rtv
+    Copy the default rtv user configuration to the specified file.
+    """
+    return _copy_settings_file(DEFAULT_CONFIG, filename, 'config')
+
+
+def _copy_settings_file(source, destination, name):
+    """
+    Copy a file from the repo to the user's home directory.
     """
 
-    if os.path.exists(filename):
+    if os.path.exists(destination):
         try:
             ch = six.moves.input(
-                'File %s already exists, overwrite? y/[n]):' % filename)
+                'File %s already exists, overwrite? y/[n]):' % destination)
             if ch not in ('Y', 'y'):
                 return
         except KeyboardInterrupt:
             return
 
-    filepath = os.path.dirname(filename)
+    filepath = os.path.dirname(destination)
     if not os.path.exists(filepath):
         os.makedirs(filepath)
 
-    print('Copying default settings to %s' % filename)
-    shutil.copy(DEFAULT_CONFIG, filename)
-    os.chmod(filename, 0o664)
+    print('Copying default %s to %s' % (name, destination))
+    shutil.copy(source, destination)
+    os.chmod(destination, 0o664)
 
 
 class OrderedSet(object):
@@ -111,6 +150,9 @@ class OrderedSet(object):
 
 
 class Config(object):
+    """
+    This class manages the loading and saving of configs and other files.
+    """
 
     def __init__(self, history_file=HISTORY, token_file=TOKEN, **kwargs):
 
@@ -184,6 +226,12 @@ class Config(object):
 
         parser = build_parser()
         args = vars(parser.parse_args())
+
+        # Overwrite the deprecated "-l" option into the link variable
+        if args['link_deprecated'] and args['link'] is None:
+            args['link'] = args['link_deprecated']
+        args.pop('link_deprecated', None)
+
         # Filter out argument values that weren't supplied
         return {key: val for key, val in args.items() if val is not None}
 
@@ -213,12 +261,18 @@ class Config(object):
         params = {
             'ascii': partial(config.getboolean, 'rtv'),
             'monochrome': partial(config.getboolean, 'rtv'),
-            'clear_auth': partial(config.getboolean, 'rtv'),
             'persistent': partial(config.getboolean, 'rtv'),
+            'autologin': partial(config.getboolean, 'rtv'),
+            'clear_auth': partial(config.getboolean, 'rtv'),
+            'enable_media': partial(config.getboolean, 'rtv'),
             'history_size': partial(config.getint, 'rtv'),
             'oauth_redirect_port': partial(config.getint, 'rtv'),
-            'oauth_scope': lambda x: rtv[x].split(',')
+            'oauth_scope': lambda x: rtv[x].split(','),
+            'max_comment_cols': partial(config.getint, 'rtv'),
+            'hide_username': partial(config.getboolean, 'rtv'),
+            'flash': partial(config.getboolean, 'rtv')
         }
+
         for key, func in params.items():
             if key in rtv:
                 rtv[key] = func(key)

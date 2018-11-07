@@ -1,0 +1,42 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept: ['*/*']
+      Accept-Encoding: ['gzip, deflate']
+      Connection: [keep-alive]
+      User-Agent: [python-requests/2.11.0]
+    method: GET
+    uri: https://gfycat.com/cajax/get/DeliciousUnfortunateAdouri
+  response:
+    body:
+      string: !!binary |
+        H4sIAAAAAAAAA6yV32+cMAzH/5WKvXZXfhxwdy/Vdrd1laaq29rtoa2mAAa8JQQloddb1f99DoH1
+        VmkPE/eC8NfOBztY9qNXlbtzA8JbPfavhbfyCuCYo+x015RSma5hBlghO4XesQ26YAIobDOGXT+H
+        vdkP60QGigLDNJqHoR8kpLP7ai25tPKrt+v1YhOR2GlQAxSbe1aAKiijY2+LhalJDJahT2YNWNXG
+        2v7C2qWiM5/pqyRFVmg68d5qmoR5f0S082vFyayNafXq9uT2pELWmBnllzMzy6W4Pfl3ITM6b/OA
+        TEzCWIDjtC85pqZr0v8Bam1ZMkMOk1CvHWOo0BmXUhtQB8H+aCvCtgcAOsYA7I9GiT8NSYCh7pF3
+        iMpH1n6qgX84NLEGtGAPscjOsJyA1PgLvivQRmFuoJhVROvJ4WSyYJyPPEp4WseLoWRscGJjEmHs
+        dno9SK9bpMuPyp00Idx10fML/Rc74sIkXfhJFLshNqpRGqdLPxlm0qDOgyDwQxuZKyDkxo3EYJ4s
+        lvMkCUPy3CNsaSzGaRgtB+sCtu9amdsB28u2Z9Hw/mh8pCGXTXHEUaA5PT0lJzwYxT6CEIxATcc5
+        ZVbEFM3yiMUhC/3Mh3KR5ZDFQRKk/iL1WRgv7YQ3rKJDN94HmuCfOsbR7KjJNHmQabQjbW/w37mN
+        cDWccREkNrrc0ufsXNfMbpDA7g576y4bTTeZw6AXu4YJ+cfVZQqKAs0oOMuuu7/tK6py1Dj+7FdJ
+        j0M9mM7XdhlHXUMx+kHnCluDshlDctnulN1Ya85QMGyewaypOlbB/sdKem6kDftWo6FG0eS6uXOO
+        M5AvVOyX36WSJU3bc0Gwr6gxs3+vZFzD09NvAAAA//8DAJrmkiHbBwAA
+    headers:
+      Access-Control-Allow-Origin: ['*']
+      Age: ['0']
+      Cache-Control: ['max-age=3600, public']
+      Connection: [keep-alive]
+      Content-Encoding: [gzip]
+      Content-Type: [application/json]
+      Date: ['Sun, 05 Aug 2018 02:49:42 GMT']
+      Server: [nginx]
+      Vary: ['Accept-Encoding,CloudFront-Is-Mobile-Viewer,CloudFront-Is-Desktop-Viewer,CloudFront-Is-Tablet-Viewer']
+      Via: ['1.1 varnish, 1.1 e8e2b5919de16b604427afff4643bac6.cloudfront.net (CloudFront)']
+      X-Amz-Cf-Id: [NTsnZkd-THTFW72NcLVNKicazXJwD2gfHS7J1tpFE3n4nB74NRvzEg==]
+      X-Cache: [Miss from cloudfront]
+      X-Powered-By: [PHP/5.5.38]
+      X-Varnish: ['1600772156']
+    status: {code: 200, message: OK}
+version: 1

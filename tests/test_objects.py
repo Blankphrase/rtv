@@ -3,24 +3,54 @@ from __future__ import unicode_literals
 
 import time
 import curses
+from collections import OrderedDict
 
+import os
 import six
 import pytest
 import requests
+from six.moves import reload_module
 
 from rtv import exceptions
-from rtv.objects import Color, Controller, Navigator, Command, KeyMap, \
-    curses_session
+from rtv.objects import Controller, Navigator, Command, KeyMap, \
+    curses_session, patch_webbrowser
 
 try:
     from unittest import mock
 except ImportError:
     import mock
 
+# webbrowser's command to check if a file exists is different for py2/py3
+if six.PY3:
+    mock_isfile = mock.patch('shutil.which', return_value=None)
+else:
+    mock_isfile = mock.patch('os.path.isfile', return_value=None)
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+
+@mock.patch.dict(os.environ, {'BROWSER': 'safari'})
+@mock.patch('sys.platform', 'darwin')
+@mock_isfile
+def test_patch_webbrowser(*_):
+
+    # Make sure that webbrowser re-generates the browser list using the
+    # mocked environment
+    import webbrowser
+    webbrowser = reload_module(webbrowser)
+
+    # By default, we expect that BROWSER will be loaded as a generic browser
+    # This is because "safari" is not a valid script in the system PATH
+    assert isinstance(webbrowser.get(), webbrowser.GenericBrowser)
+
+    # After patching, the default webbrowser should now be interpreted as an
+    # OSAScript browser
+    patch_webbrowser()
+    assert isinstance(webbrowser.get(), webbrowser.MacOSXOSAScript)
+    assert webbrowser._tryorder[0] == 'safari'
+
+
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     # Ensure the thread is properly started/stopped
     with terminal.loader(delay=0, message=u'Hello', trail=u'...'):
@@ -32,9 +62,9 @@ def test_objects_load_screen(terminal, stdscr, ascii):
     assert stdscr.subwin.nlines == 3
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_exception_unhandled(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_exception_unhandled(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     # Raising an exception should clean up the loader properly
     with pytest.raises(Exception):
@@ -45,9 +75,9 @@ def test_objects_load_screen_exception_unhandled(terminal, stdscr, ascii):
     assert not terminal.loader._animator.is_alive()
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_exception_handled(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_exception_handled(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     # Raising a handled exception should get stored on the loaders
     with terminal.loader(delay=0):
@@ -56,13 +86,13 @@ def test_objects_load_screen_exception_handled(terminal, stdscr, ascii):
     assert not terminal.loader._is_running
     assert not terminal.loader._animator.is_alive()
     assert isinstance(terminal.loader.exception, requests.ConnectionError)
-    error_message = 'ConnectionError'.encode('ascii' if ascii else 'utf-8')
+    error_message = 'ConnectionError'.encode('ascii' if use_ascii else 'utf-8')
     stdscr.subwin.addstr.assert_called_with(1, 1, error_message)
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_exception_not_caught(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_exception_not_caught(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     with pytest.raises(KeyboardInterrupt):
         with terminal.loader(delay=0, catch_exception=False):
@@ -73,9 +103,9 @@ def test_objects_load_screen_exception_not_caught(terminal, stdscr, ascii):
     assert terminal.loader.exception is None
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_keyboard_interrupt(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_keyboard_interrupt(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     # Raising a KeyboardInterrupt should be also be stored
     with terminal.loader(delay=0):
@@ -86,9 +116,9 @@ def test_objects_load_screen_keyboard_interrupt(terminal, stdscr, ascii):
     assert isinstance(terminal.loader.exception, KeyboardInterrupt)
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_escape(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_escape(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     stdscr.getch.return_value = terminal.ESCAPE
 
@@ -109,9 +139,9 @@ def test_objects_load_screen_escape(terminal, stdscr, ascii):
     assert kill.called
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_initial_delay(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_initial_delay(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     # If we don't reach the initial delay nothing should be drawn
     with terminal.loader(delay=0.1):
@@ -119,9 +149,9 @@ def test_objects_load_screen_initial_delay(terminal, stdscr, ascii):
     assert not stdscr.subwin.addstr.called
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_nested(terminal, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_nested(terminal, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     with terminal.loader(message='Outer'):
         with terminal.loader(message='Inner'):
@@ -134,9 +164,9 @@ def test_objects_load_screen_nested(terminal, ascii):
     assert not terminal.loader._animator.is_alive()
 
 
-@pytest.mark.parametrize('ascii', [True, False])
-def test_objects_load_screen_nested_complex(terminal, stdscr, ascii):
-    terminal.ascii = ascii
+@pytest.mark.parametrize('use_ascii', [True, False])
+def test_objects_load_screen_nested_complex(terminal, stdscr, use_ascii):
+    terminal.config['ascii'] = use_ascii
 
     with terminal.loader(message='Outer') as outer_loader:
         assert outer_loader.depth == 1
@@ -155,23 +185,8 @@ def test_objects_load_screen_nested_complex(terminal, stdscr, ascii):
     assert terminal.loader.depth == 0
     assert not terminal.loader._is_running
     assert not terminal.loader._animator.is_alive()
-    error_message = 'ConnectionError'.encode('ascii' if ascii else 'utf-8')
+    error_message = 'ConnectionError'.encode('ascii' if use_ascii else 'utf-8')
     stdscr.subwin.addstr.assert_called_once_with(1, 1, error_message)
-
-
-def test_objects_color(stdscr):
-
-    colors = ['RED', 'GREEN', 'YELLOW', 'BLUE', 'MAGENTA', 'CYAN', 'WHITE']
-
-    # Check that all colors start with the default value
-    for color in colors:
-        assert getattr(Color, color) == curses.A_NORMAL
-
-    Color.init()
-
-    # Check that all colors are populated
-    for color in colors:
-        assert getattr(Color, color) == 23
 
 
 def test_objects_curses_session(stdscr):
@@ -249,6 +264,41 @@ def test_objects_controller():
     assert controller_c.trigger('3') is None
 
 
+def test_objects_controller_double_press():
+
+    class ControllerA(Controller):
+        character_map = {}
+
+    @ControllerA.register(Command('F1'))
+    def call_page(_):
+        return '1'
+
+    @ControllerA.register(Command('F2'))
+    def call_page(_):
+        return '2'
+
+    keymap = KeyMap({'F1': ['gg'], 'F2': ['a']})
+    controller_a = ControllerA(None, keymap=keymap)
+
+    # Double press
+    controller_a.last_char = None
+    assert controller_a.trigger('g') is None
+    assert controller_a.trigger('g') == '1'
+    assert controller_a.trigger('g') is None
+
+    # Executing another command cancels the chain
+    controller_a.last_char = None
+    assert controller_a.trigger('g') is None
+    assert controller_a.trigger('a') == '2'
+    assert controller_a.trigger('g') is None
+
+    # Pressing an invalid key cancels the chain
+    controller_a.last_char = None
+    assert controller_a.trigger('g') is None
+    assert controller_a.trigger('b') is None
+    assert controller_a.trigger('g') is None
+
+
 def test_objects_controller_command():
 
     class ControllerA(Controller):
@@ -271,6 +321,21 @@ def test_objects_controller_command():
 
     # Two commands aren't allowed to share keys
     keymap = KeyMap({'REFRESH': [0x10, 0x11], 'UPVOTE': [0x11, 0x12]})
+    with pytest.raises(exceptions.ConfigError) as e:
+        ControllerA(None, keymap=keymap)
+    assert 'ControllerA' in six.text_type(e)
+
+    # Reset the character map
+    ControllerA.character_map = {Command('REFRESH'): 0, Command('UPVOTE'): 0}
+
+    # A double command can't share the first key with a single comand
+    keymap = KeyMap(OrderedDict([('REFRESH', ['gg']), ('UPVOTE', ['g'])]))
+    with pytest.raises(exceptions.ConfigError) as e:
+        ControllerA(None, keymap=keymap)
+    assert 'ControllerA' in six.text_type(e)
+
+    # It doesn't matter which order they were entered
+    keymap = KeyMap(OrderedDict([('UPVOTE', ['g']), ('REFRESH', ['gg'])]))
     with pytest.raises(exceptions.ConfigError) as e:
         ControllerA(None, keymap=keymap)
     assert 'ControllerA' in six.text_type(e)
@@ -306,24 +371,30 @@ def test_objects_keymap():
     bindings = {
         'refresh': ['a', 0x12, '<LF>', '<KEY_UP>'],
         'exit': [],
-        Command('UPVOTE'): ['b', '<KEY_F5>']
+        Command('UPVOTE'): ['b', '<KEY_F5>'],
+        Command('PAGE_TOP'): ['gg']
     }
 
     keymap = KeyMap(bindings)
     assert keymap.get(Command('REFRESH')) == ['a', 0x12, '<LF>', '<KEY_UP>']
     assert keymap.get(Command('exit')) == []
+    assert keymap.get(Command('PAGE_TOP')) == ['gg']
     assert keymap.get('upvote') == ['b', '<KEY_F5>']
     with pytest.raises(exceptions.ConfigError) as e:
         keymap.get('downvote')
     assert 'DOWNVOTE' in six.text_type(e)
 
-    # Updating the bindings wipes out the old ones
     bindings = {'refresh': ['a', 0x12, '<LF>', '<KEY_UP>']}
+    bindings2 = {'upvote': ['b', 0x13, '<KEY_DOWN>']}
+    keymap._keymap = {}
     keymap.set_bindings(bindings)
     assert keymap.get('refresh')
     with pytest.raises(exceptions.ConfigError) as e:
         keymap.get('upvote')
     assert 'UPVOTE' in six.text_type(e)
+    keymap.set_bindings(bindings2)
+    assert keymap.get('refresh')
+    assert keymap.get('upvote')
 
     # Strings should be parsed correctly into keys
     assert KeyMap.parse('a') == 97
@@ -331,7 +402,8 @@ def test_objects_keymap():
     assert KeyMap.parse('<LF>') == 10
     assert KeyMap.parse('<KEY_UP>') == 259
     assert KeyMap.parse('<KEY_F5>') == 269
-    for key in ('', None, '<lf>', '<DNS>', '<KEY_UD>', '♬'):
+    assert KeyMap.parse('gg') == (103, 103)
+    for key in ('', None, '<lf>', '<DNS>', '<KEY_UD>', '♬', 'ggg'):
         with pytest.raises(exceptions.ConfigError) as e:
             keymap.parse(key)
         assert six.text_type(key) in six.text_type(e)

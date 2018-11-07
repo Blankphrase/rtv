@@ -7,73 +7,182 @@ desktop:https://github.com/michael-lazar/rtv:{version}\
 """
 
 SUMMARY = """
-Reddit Terminal Viewer is a lightweight browser for www.reddit.com built into a
-terminal window.
+RTV (Reddit Terminal Viewer) is a terminal interface to view and interact with reddit.
+"""
+
+USAGE = """\
+rtv [URL] [-s SUBREDDIT]
+
+  $ rtv https://www.reddit.com/r/programming/comments/7h9l31
+  $ rtv -s linux
 """
 
 CONTROLS = """
-Move the cursor using either the arrow keys or *Vim* style movement.
+Move the cursor using the arrow keys or vim style movement.
 Press `?` to open the help screen.
 """
 
-HELP = """
-[Basic Commands]
-  `j/k` or `UP/DOWN`  : Move the cursor up/down
-  `m/n` or `PgUp/PgDn`: Jump to the previous/next page
-  `o` or `ENTER`      : Open the selected item as a webpage
-  `1`-`5`             : Toggle post order
-  `r` or `F5`         : Refresh page content
-  `u`                 : Log in or switch accounts
-  `?`                 : Show the help screen
-  `q/Q`               : Quit/Force quit
+HELP = """\
+====================================
+Reddit Terminal Viewer
 
-[Authenticated Commands]
-  `a/z`               : Upvote/downvote
-  `c`                 : Compose a new post or comment
-  `e`                 : Edit an existing post or comment
-  `d`                 : Delete an existing post or comment
-  `i`                 : Display new messages prompt
-  `s`                 : Open/close subscribed subreddits list
+https://github.com/michael-lazar/rtv
+====================================
 
-[Subreddit Mode]
-  `l` or `RIGHT`      : Enter the selected submission
-  `/`                 : Open a prompt to switch subreddits
-  `f`                 : Open a prompt to search the current subreddit
+[Commands]
+  j     : Move the cursor down
+  k     : Move the cursor up
+  n     : Move down one page
+  m     : Move up one page
+  gg    : Jump to the first post
+  G     : Jump to the last post
+  J     : Jump to the next sibling comment
+  K     : Jump to the parent comment
+  1     : Sort by hot
+  2     : Sort by top
+  3     : Sort by rising
+  4     : Sort by new
+  5     : Sort by controversial
+  6     : Sort by gilded
+  p     : Return to the front page
+  r     : Refresh page
+  u     : Login or logout
+  /     : Open the subreddit prompt
+  f     : Open the search prompt
+  ?     : Show the help screen
+  q     : Quit
+  Q     : Force quit
+  a     : Upvote
+  z     : Downvote
+  c     : Compose a new submission/comment
+  e     : Edit a submission/comment
+  d     : Delete a submission/comment
+  i     : Display new messages
+  s     : Show subscribed subreddits
+  S     : Show subscribed multireddits
+  w     : Save a submission/comment 
+  l     : View comments, or open comment in pager
+  h     : Return to subreddit
+  o     : Open the submission or comment url
+  SPACE : Hide a submission, or fold/expand the selected comment tree
+  b     : Display urls with urlview
+  y     : Copy submission permalink to clipboard
+  Y     : Copy submission link to clipboard
+  F2    : Cycle to previous theme
+  F3    : Cycle to next theme
 
-[Submission Mode]
-  `h` or `LEFT`       : Return to subreddit mode
-  `l` or `RIGHT`      : Open the selected comment in a new window
-  `SPACE`             : Fold the selected comment, or load additional comments
+[Prompt]
+  The `/` prompt accepts subreddits in the following formats
+
+  - python
+  - /r/python
+  - /r/python/new                (sort)
+  - /r/python/controversial-year (sort and order)
+  - /r/python/gilded             (gilded within subreddit)
+  - /r/python+linux              (multireddit)
+  - /r/python/comments/30rwj2    (submission comments)
+  - /comments/30rwj2             (submission comments shorthand)
+  - /r/front                     (front page)
+  - /u/me                        (your submissions overview)
+  - /u/me/{saved,hidden}         (your saved or hidden posts)
+  - /u/me/{upvoted,downvoted}    (your voted posts)
+  - /u/spez                      (a user's submissions overview)
+  - /u/spez/{submitted,comments} (a user's posts or comments)
+  - /u/multi-mod/m/android       (curated multireddit)
+  - /domain/python.org           (search by domain)
 """
 
-COMMENT_FILE = """
-# Please enter a comment. Lines starting with '#' will be ignored,
-# and an empty message aborts the comment.
-#
-# Replying to {author}'s {type}
-{content}
+BANNER_SUBREDDIT = """
+[1]hot [2]top [3]rising [4]new [5]controversial [6]gilded
 """
 
-COMMENT_EDIT_FILE = """{content}
-# Please enter a comment. Lines starting with '#' will be ignored,
-# and an empty message aborts the comment.
-#
-# Editing your comment
+BANNER_SUBMISSION = """
+[1]hot [2]top [3]rising [4]new [5]controversial
 """
 
-SUBMISSION_FILE = """
-# Please enter your submission. Lines starting with '#' will be ignored,
-# and an empty message aborts the submission.
-#
-# The first line will be interpreted as the title
-# The following lines will be interpreted as the content
-#
-# Posting to {name}
+BANNER_SEARCH = """
+[1]relevance [2]top [3]comments [4]new
 """
 
-SUBMISSION_EDIT_FILE = """{content}
-# Please enter your submission. Lines starting with '#' will be ignored,
-# and an empty message aborts the submission.
-#
-# Editing {name}
+FOOTER_SUBREDDIT = """
+[?]Help [q]Quit [l]Comments [/]Prompt [u]Login [o]Open [c]Post [a/z]Vote [r]Refresh
+"""
+
+FOOTER_SUBMISSION = """
+[?]Help [q]Quit [h]Return [space]Fold/Expand [o]Open [c]Comment [a/z]Vote [r]Refresh
+"""
+
+FOOTER_SUBSCRIPTION = """
+[?]Help [q]Quit [h]Return [l]Select
+"""
+
+TOKEN = "INSTRUCTIONS"
+
+COMMENT_FILE = """<!--{token}
+Replying to {{author}}'s {{type}}:
+{{content}}
+
+Enter your reply below this instruction block,
+an empty message will abort the comment.
+{token}-->
+""".format(token=TOKEN)
+
+COMMENT_EDIT_FILE = """<!--{token}
+Editing comment #{{id}}.
+The comment is shown below, update it and save the file.
+{token}-->
+
+{{content}}
+""".format(token=TOKEN)
+
+SUBMISSION_FILE = """<!--{token}
+Submitting a selfpost to {{name}}.
+
+Enter your submission below this instruction block:
+- The first line will be interpreted as the title
+- The following lines will be interpreted as the body
+- An empty message will abort the submission
+{token}-->
+""".format(token=TOKEN)
+
+SUBMISSION_EDIT_FILE = """<!--{token}
+Editing submission #{{id}}.
+The submission is shown below, update it and save the file.
+{token}-->
+
+{{content}}
+""".format(token=TOKEN)
+
+OAUTH_ACCESS_DENIED = """\
+        <h1 style="color: red">Access Denied</h1><hr>
+        <p><span style="font-weight: bold">Reddit Terminal Viewer</span> was
+        denied access and will continue to operate in unauthenticated mode,
+        you can close this window.</p>
+"""
+
+OAUTH_ERROR = """\
+       <h1 style="color: red">Error</h1><hr>
+       <p>{error}</p>
+"""
+
+OAUTH_INVALID = """\
+       <h1>Wait...</h1><hr>
+       <p>This page is supposed to be a Reddit OAuth callback.
+       You can't just come here hands in your pocket!</p>
+"""
+
+OAUTH_SUCCESS = """\
+       <h1 style="color: green">Access Granted</h1><hr>
+       <p><span style="font-weight: bold">Reddit Terminal Viewer</span>
+       will now log in, you can close this window.</p>
+"""
+
+TIME_ORDER_MENU = """
+Links from:
+  [1] Past hour
+  [2] Past 24 hours
+  [3] Past week
+  [4] Past month
+  [5] Past year
+  [6] All time
 """

@@ -3,24 +3,73 @@ from __future__ import unicode_literals
 
 import re
 import os
+import sys
 import time
 import signal
 import inspect
 import weakref
 import logging
 import threading
+import webbrowser
 import curses
 import curses.ascii
 from contextlib import contextmanager
 
 import six
-import praw
 import requests
 
 from . import exceptions
+from .packages import praw
 
 
 _logger = logging.getLogger(__name__)
+
+
+def patch_webbrowser():
+    """
+    Some custom patches on top of the python webbrowser module to fix
+    user reported bugs and limitations of the module.
+    """
+
+    # https://bugs.python.org/issue31014
+    # https://github.com/michael-lazar/rtv/issues/588
+    def register_patch(name, klass, instance=None, update_tryorder=None, preferred=False):
+        """
+        Wrapper around webbrowser.register() that detects if the function was
+        invoked with the legacy function signature. If so, the signature is
+        fixed before passing it along to the underlying function.
+
+        Examples:
+            register(name, klass, instance, -1)
+            register(name, klass, instance, update_tryorder=-1)
+            register(name, klass, instance, preferred=True)
+        """
+        if update_tryorder is not None:
+            preferred = (update_tryorder == -1)
+        return webbrowser._register(name, klass, instance, preferred=preferred)
+
+    if sys.version_info[:2] >= (3, 7):
+        webbrowser._register = webbrowser.register
+        webbrowser.register = register_patch
+
+    # Add support for browsers that aren't defined in the python standard library
+    webbrowser.register('surf', None, webbrowser.BackgroundBrowser('surf'))
+    webbrowser.register('vimb', None, webbrowser.BackgroundBrowser('vimb'))
+    webbrowser.register('qutebrowser', None, webbrowser.BackgroundBrowser('qutebrowser'))
+
+    # Fix the opera browser, see https://github.com/michael-lazar/rtv/issues/476.
+    # By default, opera will open a new tab in the current window, which is
+    # what we want to do anyway.
+    webbrowser.register('opera', None, webbrowser.BackgroundBrowser('opera'))
+
+    # https://bugs.python.org/issue31348
+    # Use MacOS actionscript when opening the program defined in by $BROWSER
+    if sys.platform == 'darwin' and 'BROWSER' in os.environ:
+        _userchoices = os.environ["BROWSER"].split(os.pathsep)
+        for cmdline in reversed(_userchoices):
+            if cmdline in ('safari', 'firefox', 'chrome', 'default'):
+                browser = webbrowser.MacOSXOSAScript(cmdline)
+                webbrowser.register(cmdline, None, browser, update_tryorder=-1)
 
 
 @contextmanager
@@ -56,14 +105,15 @@ def curses_session():
         # return from C start_color() is ignorable.
         try:
             curses.start_color()
+            curses.use_default_colors()
         except:
-            pass
+            _logger.warning('Curses failed to initialize color support')
 
         # Hide the blinking cursor
-        curses.curs_set(0)
-
-        # Assign the terminal's default (background) color to code -1
-        curses.use_default_colors()
+        try:
+            curses.curs_set(0)
+        except:
+            _logger.warning('Curses failed to initialize the cursor mode')
 
         yield stdscr
 
@@ -116,11 +166,13 @@ class LoadScreen(object):
 
     EXCEPTION_MESSAGES = [
         (exceptions.RTVError, '{0}'),
-        (praw.errors.OAuthException, 'Not logged in'),
+        (praw.errors.OAuthException, 'OAuth Error'),
         (praw.errors.OAuthScopeRequired, 'Not logged in'),
         (praw.errors.LoginRequired, 'Not logged in'),
         (praw.errors.InvalidCaptcha, 'Error, captcha required'),
+        (praw.errors.InvalidSubreddit, '{0.args[0]}'),
         (praw.errors.PRAWException, '{0.__class__.__name__}'),
+        (requests.exceptions.Timeout, 'HTTP request timed out'),
         (requests.exceptions.RequestException, '{0.__class__.__name__}'),
     ]
 
@@ -190,7 +242,7 @@ class LoadScreen(object):
 
         self.exception = e
         exc_name = type(e).__name__
-        _logger.info('Loader caught: {0} - {1}'.format(exc_name, e))
+        _logger.info('Loader caught: %s - %s', exc_name, e)
 
         if isinstance(e, KeyboardInterrupt):
             # Don't need to print anything for this one, just swallow it
@@ -199,7 +251,8 @@ class LoadScreen(object):
         for e_type, message in self.EXCEPTION_MESSAGES:
             # Some exceptions we want to swallow and display a notification
             if isinstance(e, e_type):
-                self._terminal.show_notification(message.format(e))
+                msg = message.format(e)
+                self._terminal.show_notification(msg, style='Error')
                 return True
 
     def animate(self, delay, interval, message, trail):
@@ -219,12 +272,16 @@ class LoadScreen(object):
                     return
                 time.sleep(0.01)
 
-        # Build the notification window
+        # Build the notification window. Note that we need to use
+        # curses.newwin() instead of stdscr.derwin() so the text below the
+        # notification window does not got erased when we cover it up.
         message_len = len(message) + len(trail)
         n_rows, n_cols = self._terminal.stdscr.getmaxyx()
-        s_row = (n_rows - 3) // 2
-        s_col = (n_cols - message_len - 1) // 2
+        v_offset, h_offset = self._terminal.stdscr.getbegyx()
+        s_row = (n_rows - 3) // 2 + v_offset
+        s_col = (n_cols - message_len - 1) // 2 + h_offset
         window = curses.newwin(3, message_len + 2, s_row, s_col)
+        window.bkgd(str(' '), self._terminal.attr('NoticeLoading'))
 
         # Animate the loading prompt until the stopping condition is triggered
         # when the context manager exits.
@@ -245,56 +302,13 @@ class LoadScreen(object):
 
                     # Break up the designated sleep interval into smaller
                     # chunks so we can more responsively check for interrupts.
-                    for _ in range(int(interval/0.01)):
+                    for _ in range(int(interval / 0.01)):
                         # Pressing escape triggers a keyboard interrupt
                         if self._terminal.getch() == self._terminal.ESCAPE:
                             os.kill(os.getpid(), signal.SIGINT)
                             self._is_running = False
                             break
                         time.sleep(0.01)
-
-
-class Color(object):
-    """
-    Color attributes for curses.
-    """
-
-    RED = curses.A_NORMAL
-    GREEN = curses.A_NORMAL
-    YELLOW = curses.A_NORMAL
-    BLUE = curses.A_NORMAL
-    MAGENTA = curses.A_NORMAL
-    CYAN = curses.A_NORMAL
-    WHITE = curses.A_NORMAL
-
-    _colors = {
-        'RED': (curses.COLOR_RED, -1),
-        'GREEN': (curses.COLOR_GREEN, -1),
-        'YELLOW': (curses.COLOR_YELLOW, -1),
-        'BLUE': (curses.COLOR_BLUE, -1),
-        'MAGENTA': (curses.COLOR_MAGENTA, -1),
-        'CYAN': (curses.COLOR_CYAN, -1),
-        'WHITE': (curses.COLOR_WHITE, -1),
-    }
-
-    @classmethod
-    def init(cls):
-        """
-        Initialize color pairs inside of curses using the default background.
-
-        This should be called once during the curses initial setup. Afterwards,
-        curses color pairs can be accessed directly through class attributes.
-        """
-
-        for index, (attr, code) in enumerate(cls._colors.items(), start=1):
-            curses.init_pair(index, code[0], code[1])
-            setattr(cls, attr, curses.color_pair(index))
-
-    @classmethod
-    def get_level(cls, level):
-
-        levels = [cls.MAGENTA, cls.CYAN, cls.GREEN, cls.YELLOW]
-        return levels[level % len(levels)]
 
 
 class Navigator(object):
@@ -456,12 +470,12 @@ class Navigator(object):
                 valid = True
             else:
                 # flip to the direction of movement
-                if ((direction > 0) & (self.inverted is True))\
-                   | ((direction < 0) & (self.inverted is False)):
-                    self.page_index += (self.step * (n_windows-1))
+                if ((direction > 0) & (self.inverted is True)) \
+                        | ((direction < 0) & (self.inverted is False)):
+                    self.page_index += (self.step * (n_windows - 1))
                     self.inverted = not self.inverted
                     self.cursor_index \
-                        = (n_windows-(direction < 0)) - self.cursor_index
+                        = (n_windows - (direction < 0)) - self.cursor_index
 
                 valid = False
                 adj = 0
@@ -519,11 +533,6 @@ class Controller(object):
     >>> def upvote(self, *args)
     >>      ...
 
-    Register a default behavior by using `None`.
-    >>> @Controller.register(None)
-    >>> def default_func(self, *args)
-    >>>     ...
-
     Bind the controller to a class instance and trigger a key. Additional
     arguments will be passed to the function.
     >>> controller = Controller(self)
@@ -538,6 +547,8 @@ class Controller(object):
         # Build a list of parent controllers that follow the object's MRO
         # to check if any parent controllers have registered the keypress
         self.parents = inspect.getmro(type(self))[:-1]
+        # Keep track of last key press for doubles like `gg`
+        self.last_char = None
 
         if not keymap:
             return
@@ -551,6 +562,18 @@ class Controller(object):
                 if isinstance(command, Command):
                     for key in keymap.get(command):
                         val = keymap.parse(key)
+                        # If a double key press is defined, the first half
+                        # must be unbound
+                        if isinstance(val, tuple):
+                            if controller.character_map.get(val[0]) is not None:
+                                raise exceptions.ConfigError(
+                                    "Invalid configuration! `%s` is bound to "
+                                    "duplicate commands in the "
+                                    "%s" % (key, controller.__name__))
+                            # Mark the first half of the double with None so
+                            # that no other command can use it
+                            controller.character_map[val[0]] = None
+
                         # Check if the key is already programmed to trigger a
                         # different function.
                         if controller.character_map.get(val, func) != func:
@@ -569,16 +592,19 @@ class Controller(object):
         # Check if the controller (or any of the controller's parents) have
         # registered a function to the given key
         for controller in self.parents:
+            func = controller.character_map.get((self.last_char, char))
             if func:
                 break
             func = controller.character_map.get(char)
-        # If the controller has not registered the key, check if there is a
-        # default function registered
-        for controller in self.parents:
             if func:
                 break
-            func = controller.character_map.get(None)
-        return func(self.instance, *args, **kwargs) if func else None
+
+        if func:
+            self.last_char = None
+            return func(self.instance, *args, **kwargs)
+        else:
+            self.last_char = char
+            return None
 
     @classmethod
     def register(cls, *chars):
@@ -627,14 +653,16 @@ class KeyMap(object):
         self.set_bindings(bindings)
 
     def set_bindings(self, bindings):
-        # Clear the keymap before applying the bindings to avoid confusion.
-        # If a user defines custom bindings in their config file, they must
-        # explicitly define ALL of the bindings.
-        self._keymap = {}
+        new_keymap = {}
         for command, keys in bindings.items():
             if not isinstance(command, Command):
                 command = Command(command)
-            self._keymap[command] = keys
+            new_keymap[command] = keys
+
+        if not self._keymap:
+            self._keymap = new_keymap
+        else:
+            self._keymap.update(new_keymap)
 
     def get(self, command):
         if not isinstance(command, Command):
@@ -645,8 +673,8 @@ class KeyMap(object):
             raise exceptions.ConfigError('Invalid configuration! `%s` key is '
                                          'undefined' % command.val)
 
-    @staticmethod
-    def parse(key):
+    @classmethod
+    def parse(cls, key):
         """
         Parse a key represented by a string and return its character code.
         """
@@ -663,6 +691,9 @@ class KeyMap(object):
             elif key.startswith('0x'):
                 # Ascii hex code
                 return int(key, 16)
+            elif len(key) == 2:
+                # Double presses
+                return tuple(cls.parse(k) for k in key)
             else:
                 # Ascii character
                 code = ord(key)
